@@ -10,6 +10,7 @@ LossValue = NewType("LossValue", float)
 @dataclass
 class DoubleDQNAgent:
     environment: str
+    timesteps: int = 10_000_000
     initial_epsilon: float = 1.0
     final_epsilon: float = 0.05
     lr: float = 0.00025 / 4
@@ -36,6 +37,14 @@ class DoubleDQNAgent:
     @property
     def learning_starts(self):
         return self.training_starts
+
+    @property
+    def epsilon(self) -> float:
+        decay_factor_power = self.t / self.timesteps
+        decay_fraction = self.final_epsilon / self.initial_epsilon
+        decay_factor = decay_fraction**decay_factor_power
+        _epsilon = self.initial_epsilon * decay_factor
+        return min(self.final_epsilon, _epsilon)
 
     def train(self) -> LossValue:
         if self.t < self.learning_starts:
