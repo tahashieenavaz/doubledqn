@@ -1,9 +1,13 @@
 import torch
+import numpy
 import random
 from dataclasses import dataclass
 from typing import NewType
-from atarihelpers import make_environment
+from collections import deque
+from atarihelpers import make_environment, process_state
+from atarihns import calculate_hns
 from .DoubleDQNNetwork import DoubleDQNNetwork
+from .DoubleDQNBuffer import DoubleDQNBuffer
 
 LossValue = NewType("LossValue", float)
 
@@ -12,6 +16,7 @@ LossValue = NewType("LossValue", float)
 class DoubleDQNAgent:
     environment: str
     timesteps: int = 10_000_000
+    buffer_capacity: int = 500_000
     initial_epsilon: float = 1.0
     final_epsilon: float = 0.05
     lr: float = 0.00025 / 4
@@ -23,6 +28,9 @@ class DoubleDQNAgent:
     gamma: float = 0.99
     betas: tuple = (0.9, 0.999)
     adam_epsilon: float = 1.5e-4
+    batch_size: int = 32
+    image_size: int = 84
+    verbose: bool = True
 
     def __init__(self):
         self.t = 0
@@ -40,6 +48,11 @@ class DoubleDQNAgent:
             lr=self.lr,
             betas=self.betas,
             eps=self.adam_epsilon,
+        )
+        self.buffer = DoubleDQNBuffer(
+            capacity=self.buffer_capacity,
+            image_size=self.image_size,
+            batch_size=self.batch_size,
         )
 
     @property
@@ -98,10 +111,41 @@ class DoubleDQNAgent:
     def loop(self):
         _episode = 0
 
+        total_loss = []
+        total_hns = []
+        total_reward = []
+
+        feeding_states = deque(maxlen=4)
+
+        state, _ = self.environment.reset()
+        state = process_state(state)
+
         while self.t < self.timesteps:
             done = False
+
             episode_reward = 0.0
             episode_loss = 0.0
 
             while not done:
-                pass
+                if len(feeding_states) == 0:
+                    for _ in range(4):
+                        feeding_states.append(state)
+
+                feeding_states_numpy = numpy.array(feeding_states)
+                feeding_states_torch = torch.from_numpy(feeding_states_numpy)
+                feeding_states_torch = feeding_states_torch.unsqueeze(0)
+
+                action = self.action(feeding_states_torch)
+                next_state, reward, truncated, terminated, _ = self.environment.step(
+                    action
+                )
+
+            hns = calculate_hns(self.environment_identifier, episode_reward)
+            if verbose:
+                print(
+                    f"episode: {_episode}, t: {self.t}, epsilon: {self.epsilon}, hns: {hns}, reward: {episode_reward}, loss: {episode_loss}"
+                )
+
+            self.tick()
+
+            feeding_states.clear()
