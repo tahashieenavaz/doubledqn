@@ -1,4 +1,5 @@
 import torch
+import random
 from dataclasses import dataclass
 from typing import NewType
 from atarihelpers import make_environment
@@ -20,6 +21,8 @@ class DoubleDQNAgent:
     stream_activation_function = torch.nn.GELU
     hidden_dimension = 512
     gamma: float = 0.99
+    betas: tuple = (0.9, 0.999)
+    adam_epsilon: float = 1.5e-4
 
     def __init__(self):
         self.t = 0
@@ -32,7 +35,12 @@ class DoubleDQNAgent:
             convolution_activation_function=self.convolution_activation_function,
             stream_activation_function=self.stream_activation_function,
         )
-        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=self.lr)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.lr,
+            betas=self.betas,
+            eps=self.adam_epsilon,
+        )
 
     @property
     def learning_starts(self):
@@ -45,6 +53,16 @@ class DoubleDQNAgent:
         decay_factor = decay_fraction**decay_factor_power
         _epsilon = self.initial_epsilon * decay_factor
         return min(self.final_epsilon, _epsilon)
+
+    @torch.no_grad()
+    def action(self, state) -> int:
+        if random.random() < self.epsilon:
+            return self.environment.action_space.sample()
+
+        if state.ndim < 2:
+            state = state.unsqueeze(0)
+
+        return self.online(state).argmax(dim=1).item()
 
     def train(self) -> LossValue:
         if self.t < self.learning_starts:
@@ -76,3 +94,14 @@ class DoubleDQNAgent:
 
     def tick(self):
         self.t += 1
+
+    def loop(self):
+        _episode = 0
+
+        while self.t < self.timesteps:
+            done = False
+            episode_reward = 0.0
+            episode_loss = 0.0
+
+            while not done:
+                pass
